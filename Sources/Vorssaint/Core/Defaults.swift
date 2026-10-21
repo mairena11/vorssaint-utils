@@ -802,6 +802,8 @@ enum DefaultsKey {
 
     // Optional top-of-screen workspace and activity presentations.
     static let notchShowPlayingMusic = "notchShowPlayingMusic"
+    // Custom fork: cinematic presentation applies to Apple Music only.
+    static let notchCinematicAppleMusic = "notchCinematicAppleMusic"
     static let notchIncludeOtherPlayers = "notchIncludeOtherPlayers"
     static let notchPreferredPlayer = "notchPreferredPlayer"
     static let notchDefaultProfileInitialized = "notchDefaultProfileInitialized" // local migration marker; never backed up
@@ -1411,6 +1413,7 @@ enum Defaults {
         DefaultsKey.snippetSoundEnabled: false,
         DefaultsKey.snippetSoundName: defaultSnippetSoundName,
         DefaultsKey.notchShowPlayingMusic: true,
+        DefaultsKey.notchCinematicAppleMusic: true,
         DefaultsKey.notchIncludeOtherPlayers: true,
         DefaultsKey.notchPreferredPlayer: "",
         DefaultsKey.notchIdleContent: NotchIdleContent.music.rawValue,

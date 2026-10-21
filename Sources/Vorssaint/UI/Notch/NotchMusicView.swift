@@ -12,6 +12,7 @@ struct NotchMusicView: View {
     @ObservedObject private var features = FeatureRuntime.shared
     @ObservedObject private var shuffle = NotchShuffleService.shared
     @AppStorage(DefaultsKey.notchLyricsEnabled) private var lyricsEnabled = true
+    @AppStorage(DefaultsKey.notchCinematicAppleMusic) private var cinematicAppleMusic = true
     @AppStorage(DefaultsKey.notchQueueEnabled) private var queueEnabled = true
     @State private var extra: MusicExtra?
     private enum MusicExtra { case lyrics, queue }
@@ -251,9 +252,95 @@ struct NotchMusicView: View {
         .frame(height: NotchLayout.musicTransportHeight)
     }
 
-    /// The cover and the song, the timeline across the island, then one row
-    /// of buttons, as a phone's island lays out its player.
-    private func player(_ playback: NotchPlayback) -> some View {
+    /// Keep the upstream player unchanged for non-Apple-Music sources. Our
+    /// cinematic presentation only lives inside the original music page.
+    @ViewBuilder private func player(_ playback: NotchPlayback) -> some View {
+        if cinematicAppleMusic && playback.track.appBundleIdentifier == "com.apple.Music" {
+            cinematicPlayer(playback)
+        } else {
+            originalPlayer(playback)
+        }
+    }
+
+    /// Artwork and playback share a single row. The seekable timeline sits
+    /// beneath them and is intentionally free of the original time labels.
+    /// A camera row is reserved above these controls so neither the title
+    /// nor the cover ever overlaps the physical notch.
+    private func cinematicPlayer(_ playback: NotchPlayback) -> some View {
+        let coverSize: CGFloat = 100
+        let trackKey = [playback.itemIdentifier ?? "", playback.track.title ?? "",
+                        playback.track.artist ?? "", playback.track.album ?? ""].joined(separator: "|")
+        let tint = service.artworkTint?.color ?? .white
+        let glow = service.artworkTint?.color ?? .clear
+        return VStack(spacing: 0) {
+            if band.besideCamera {
+                Color.clear.frame(height: bandHeight)
+            }
+            HStack(alignment: .center, spacing: 16) {
+                Button { RadialNowPlayingApplication.open(playback.track) } label: {
+                    NotchArtwork(image: service.artwork, size: coverSize, source: playback.track)
+                        .shadow(color: glow.opacity(playback.isPlaying ? 0.48 : 0.17), radius: 20)
+                        .scaleEffect(playback.isPlaying || reduceMotion ? 1.0 : 0.99)
+                }
+                .buttonStyle(NotchButtonStyle(cornerRadius: coverSize * 0.19))
+                .help(text.mediaNowPlaying)
+                .accessibilityLabel(text.mediaNowPlaying)
+                .id(trackKey)
+                .transition(.opacity.combined(with: .scale(scale: 0.96)))
+
+                VStack(alignment: .leading, spacing: 0) {
+                    NotchCinematicScrollingTitle(title: playback.track.title ?? text.mediaNowPlaying)
+                        .id(trackKey)
+                        .transition(.opacity)
+                    Text(service.commandFailed ? FeatureStrings.notchMusicExtras(l10n.language).playbackFailed
+                         : playback.track.artist ?? playback.track.album ?? text.mediaNowPlaying)
+                        .font(.system(size: 12))
+                        .foregroundStyle(service.commandFailed ? .orange : .white.opacity(0.63))
+                        .lineLimit(1)
+                        .help(playback.track.artist ?? "")
+                    Spacer(minLength: 4)
+                    NotchMusicTransport(playback: playback)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
+                .frame(height: coverSize)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxWidth: .infinity)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: trackKey)
+
+            Group {
+                if playback.duration > 0 {
+                    NotchMusicTimeline(playback: playback, service: service, tint: tint,
+                                       timesBeside: true, hidesTimeLabels: true)
+                } else {
+                    Capsule().fill(.white.opacity(0.13)).frame(height: 5)
+                        .frame(height: NotchLayout.musicTimelineHeight)
+                }
+            }
+            .padding(.top, 10)
+            Color.clear.frame(height: NotchLayout.musicBottomRoom)
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+        .background {
+            // Album colors stay on the artwork side; controls are legible
+            // on black. The existing notch silhouette clips the background.
+            RadialGradient(colors: [glow.opacity(playback.isPlaying ? 0.50 : 0.16),
+                                    glow.opacity(playback.isPlaying ? 0.22 : 0.07), .clear],
+                           center: UnitPoint(x: 0.16, y: 0.62), startRadius: 12, endRadius: 238)
+                .overlay {
+                    LinearGradient(colors: [.clear, .black.opacity(0.56)],
+                                   startPoint: .leading, endPoint: .trailing)
+                }
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: service.artworkTint)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: playback.isPlaying)
+                .allowsHitTesting(false)
+        }
+        .modifier(NotchMusicSwipeFeedback())
+    }
+
+    /// The source presentation is deliberately left intact so the fork
+    /// continues to support other music services without behavioral changes.
+    private func originalPlayer(_ playback: NotchPlayback) -> some View {
         VStack(spacing: 0) {
             head(corner: !band.besideCamera && (showsLyrics || showsQueue || band.pageSectionsButton)) {
                 Button { RadialNowPlayingApplication.open(playback.track) } label: {
@@ -277,12 +364,9 @@ struct NotchMusicView: View {
                         .lineLimit(1)
                 }
             } accessory: {
-                // Which player the buttons drive, by its icon, when there is a choice.
                 if service.sources.count > 1 || !service.sourceIsAutomatic {
                     sourceMenu(playback)
                 }
-                // Quiet beside the song, as the timeline's times are. The
-                // bars rest flat while paused, so the title keeps its width.
                 NotchLiveEqualizerBars(isPlaying: playback.isPlaying, bars: 4, barWidth: 2.5, height: 15,
                                        tint: .white.opacity(0.5))
                 if band.besideCamera { sectionsButton }
@@ -367,6 +451,61 @@ struct NotchMusicView: View {
         .accessibilityValue([service.sourceIsAutomatic ? extras.automaticSource : nil,
                              playback == nil ? nil : name].compactMap { $0 }.joined(separator: ", "))
         .help(extras.playbackSource)
+    }
+}
+
+/// A restrained marquee for titles wider than the right-hand column. It
+/// waits before moving, travels slowly, and returns after a second pause.
+/// Reduce Motion keeps a static, truncated title instead.
+private struct NotchCinematicScrollingTitle: View {
+    let title: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var measuredWidth: CGFloat = 0
+    @State private var startedAt = Date()
+
+    var body: some View {
+        GeometryReader { viewport in
+            let overflow = max(0, measuredWidth - viewport.size.width)
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0,
+                                    paused: reduceMotion || overflow <= 1)) { tick in
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .background {
+                        GeometryReader { measurement in
+                            Color.clear.preference(key: NotchCinematicTitleWidthKey.self,
+                                                   value: measurement.size.width)
+                        }
+                    }
+                    .offset(x: reduceMotion ? 0 : -distance(overflow: overflow, at: tick.date))
+            }
+        }
+        .frame(height: 21)
+        .clipped()
+        .accessibilityLabel(title)
+        .help(title)
+        .onPreferenceChange(NotchCinematicTitleWidthKey.self) { measuredWidth = $0 }
+        .onChange(of: title) { startedAt = Date() }
+    }
+
+    private func distance(overflow: CGFloat, at now: Date) -> CGFloat {
+        guard overflow > 1 else { return 0 }
+        let transit = Double(overflow / 18) // points per second
+        let cycle = 2.2 + transit + 2.0 + transit
+        let t = now.timeIntervalSince(startedAt).truncatingRemainder(dividingBy: cycle)
+        if t < 2.2 { return 0 }
+        if t < 2.2 + transit { return CGFloat((t - 2.2) / transit) * overflow }
+        if t < 4.2 + transit { return overflow }
+        return overflow * CGFloat(max(0, 1 - (t - 4.2 - transit) / transit))
+    }
+}
+
+private struct NotchCinematicTitleWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
 
@@ -615,6 +754,8 @@ struct NotchMusicTimeline: View {
     /// The island's player sets the times beside the bar, as a phone's
     /// island does, which leaves its short row room for the artist.
     var timesBeside = false
+    /// Keep the native seekable slider but hide visible timestamps.
+    var hidesTimeLabels = false
     @ObservedObject private var l10n = L10n.shared
     @State private var scrubPosition: Double?
     @State private var scrubTrack: RadialNowPlayingSnapshot?
@@ -626,7 +767,9 @@ struct NotchMusicTimeline: View {
             TimelineView(.animation(minimumInterval: 1, paused: !playback.isPlaying)) { context in
                 let position = scrubPosition ?? playback.position(at: context.date)
                 Group {
-                    if timesBeside {
+                    if hidesTimeLabels {
+                        bar(position)
+                    } else if timesBeside {
                         HStack(spacing: 8) {
                             // The song's longest reading holds each side's
                             // width, so the bar keeps its length as it plays.
