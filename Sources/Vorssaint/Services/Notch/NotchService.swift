@@ -190,6 +190,11 @@ final class NotchService: ObservableObject {
     private var noticeWork: DispatchWorkItem?
     private var departureWork: DispatchWorkItem?
     private var musicDepartureWork: DispatchWorkItem?
+    /// Only the customized Apple Music compact activity uses this grace timer.
+    private static let pausedMusicActivityTimeout: TimeInterval = 15
+    private var musicPauseDismissWork: DispatchWorkItem?
+    private var musicPausedTrackKey: String?
+    private var musicPauseDismissed = false
     private var presentedMusic: NotchCompactMusicSnapshot?
     private var trackWork: DispatchWorkItem?
     /// A new song with no strip song to keep in its place stays out of the
@@ -490,13 +495,49 @@ final class NotchService: ObservableObject {
 
     var hasMusicActivity: Bool {
         let playback = NotchMusicService.shared.playback
-        // A song paused from the strip's button counts as playing while the pointer stays.
+        // Other players keep their original hover-to-pause behavior.
         let held = playback.map { musicStripHolds(context: $0.commandContext, player: $0.track.appPID) } ?? false
         let customMusic = (UserDefaults.standard.object(forKey: DefaultsKey.notchCinematicAppleMusic) as? Bool ?? true)
             && (UserDefaults.standard.object(forKey: DefaultsKey.notchCinematicPausedActivity) as? Bool ?? true)
             && playback?.track.appBundleIdentifier == "com.apple.Music"
-        // Do not keep a ghost activity when the player has no track.
-        return NotchSupport.showsMusicActivity(isPlaying: held || playback?.isPlaying == true || (customMusic && playback != nil))
+        let playing = playback?.isPlaying == true
+        let applePausedInGrace = customMusic && playback?.isPlaying == false && !musicPauseDismissed
+        // At 15 seconds the music strip departs; another active strip can take its place.
+        return NotchSupport.showsMusicActivity(isPlaying: playing || applePausedInGrace || (held && !customMusic))
+    }
+
+    /// A paused Apple Music song keeps its compact artwork and frozen bars for
+    /// 15 seconds. Repeated now-playing samples must not restart the deadline.
+    /// Resume, a new track, or stopping cancels the old deadline.
+    private func syncPausedMusicActivity() {
+        let playback = NotchMusicService.shared.playback
+        let enabled = (UserDefaults.standard.object(forKey: DefaultsKey.notchCinematicAppleMusic) as? Bool ?? true)
+            && (UserDefaults.standard.object(forKey: DefaultsKey.notchCinematicPausedActivity) as? Bool ?? true)
+        guard enabled, let playback, playback.track.appBundleIdentifier == "com.apple.Music",
+              !playback.isPlaying else {
+            musicPauseDismissWork?.cancel(); musicPauseDismissWork = nil
+            musicPausedTrackKey = nil
+            musicPauseDismissed = false
+            return
+        }
+        let key = [String(describing: playback.track.appPID), playback.itemIdentifier ?? "",
+                   playback.track.title ?? "", playback.track.artist ?? "",
+                   playback.track.album ?? ""].joined(separator: "|")
+        guard musicPausedTrackKey != key else { return }
+        musicPauseDismissWork?.cancel()
+        musicPausedTrackKey = key
+        musicPauseDismissed = false
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.musicPausedTrackKey == key,
+                  NotchMusicService.shared.playback?.isPlaying == false else { return }
+            self.musicPauseDismissWork = nil
+            self.musicPauseDismissed = true
+            self.objectWillChange.send()
+            self.syncMenuSpaceMonitoring()
+            self.refreshPresentation()
+        }
+        musicPauseDismissWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.pausedMusicActivityTimeout, execute: work)
     }
 
     var hasAgentActivity: Bool {
@@ -870,6 +911,10 @@ final class NotchService: ObservableObject {
         result.requiresFullWidthHeader = selected == .captures && captureActions != nil
             && !showingSections && !showingAppPanel && selectedMetric == nil
         result.pageTop = expandedPageTop
+        result.cinematicMusic = selected == .music && !showingSections && !showingAppPanel
+            && selectedMetric == nil
+            && (UserDefaults.standard.object(forKey: DefaultsKey.notchCinematicAppleMusic) as? Bool ?? true)
+            && NotchMusicService.shared.playback?.track.appBundleIdentifier == "com.apple.Music"
         if result.pageTop == .wrapsCamera { result.pageTrailingControls = playerToggleCount }
         // Under a preset each page takes the width it needs, up to the
         // preset's; the gallery, details and the empty island keep the chosen
@@ -1169,6 +1214,7 @@ final class NotchService: ObservableObject {
         }
         if captureControls != nil, !NotchSupport.routesCaptureControls() { cancelCaptureControls() }
         syncNoticeWithPreferences()
+        syncPausedMusicActivity()
         syncVisibleConsumers()
         // Turning the companion on or off grows or folds the wings it rests
         // in, in view, as music arriving does, and so does hiding it in the
@@ -1279,6 +1325,9 @@ final class NotchService: ObservableObject {
         noticeWork?.cancel(); noticeWork = nil
         endDeparture()
         finishMusicDeparture()
+        musicPauseDismissWork?.cancel(); musicPauseDismissWork = nil
+        musicPausedTrackKey = nil
+        musicPauseDismissed = false
         presentedMusic = nil
         trackWork?.cancel(); trackWork = nil
         heldMusic = nil
@@ -3868,6 +3917,18 @@ final class NotchService: ObservableObject {
         }
         if modules.contains(.music) {
             let music = NotchMusicService.shared
+            // Observe only play/pause and track identity, not progress ticks,
+            // so the 15-second grace period cannot be extended accidentally.
+            music.$playback.map { playback -> String in
+                guard let playback else { return "no-track" }
+                return [String(describing: playback.track.appPID), playback.isPlaying ? "playing" : "paused",
+                        playback.itemIdentifier ?? "", playback.track.title ?? "",
+                        playback.track.artist ?? "", playback.track.album ?? ""].joined(separator: "|")
+            }
+            .removeDuplicates()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.syncPausedMusicActivity() }
+            .store(in: &subscriptions)
             music.$playback.combineLatest(music.$artwork, music.$artworkTint)
                 .sink { [weak self] playback, artwork, tint in
                     // @Published sends before storing the new value. Keep the last

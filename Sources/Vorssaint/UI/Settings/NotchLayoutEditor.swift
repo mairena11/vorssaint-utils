@@ -62,6 +62,19 @@ struct NotchLayoutEditor: View {
                         .scaleEffect(scale)
                         .frame(width: frame.width, height: frame.height)
                         .position(x: frame.midX, y: frame.midY)
+                    if self.layout != .custom {
+                        // The filled island keeps its real, content-driven size.
+                        // The dashed outline shows the room allowed by the preset.
+                        RoundedRectangle(cornerRadius: 18 * scale)
+                            .strokeBorder(Color.accentColor.opacity(0.75),
+                                          style: StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                            .frame(width: presetEnvelopeWidth * scale,
+                                   height: presetEnvelopeHeight * scale)
+                            .position(x: proxy.size.width / 2,
+                                      y: 20 + presetEnvelopeHeight * scale / 2)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                    }
                     ForEach(NotchQuickAccessSide.allCases, id: \.self) { side in
                         let items = layout.buttons.filter { $0.side == side }
                         ForEach(Array(items.enumerated()), id: \.element.id) { index, button in
@@ -126,6 +139,16 @@ struct NotchLayoutEditor: View {
             }
             .frame(height: Self.canvasHeight)
             .animation(reduceMotion ? nil : .smooth(duration: 0.2), value: layout)
+            if self.layout != .custom {
+                Label {
+                    Text("Dashed outline: \(Int(NotchLayout.preferredWidth(self.layout, custom: CGFloat(width)))) pt wide, \(Int(previewGeometry.contentBudget)) pt content allowance")
+                } icon: {
+                    Image(systemName: "square.dashed")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
             Text(editor.layoutHint).font(.callout).foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -140,6 +163,12 @@ struct NotchLayoutEditor: View {
     /// shows: a width set by hand, so the slider moves it, or under a preset
     /// the page's own, as the island takes no more.
     private var actualWidth: CGFloat { previewGeometry.expandedWidth }
+    private var presetEnvelopeWidth: CGFloat {
+        max(actualWidth, NotchLayout.preferredWidth(layout, custom: CGFloat(width)))
+    }
+    private var presetEnvelopeHeight: CGFloat {
+        max(actualHeight, NotchLayout.nominalHeight(layout, custom: CGFloat(height)))
+    }
     /// The home page around a camera, or as a capsule while the island
     /// floats in its display's menu bar, with the sections button in its
     /// row when nothing floats for it.
@@ -164,7 +193,8 @@ struct NotchLayoutEditor: View {
 
     /// A narrow window shrinks the whole island rather than only its width.
     private func scale(in canvas: CGSize) -> CGFloat {
-        min(Self.previewScale, max(0.2, (canvas.width - 112) / actualWidth))
+        let shownWidth = layout == .custom ? actualWidth : presetEnvelopeWidth
+        return min(Self.previewScale, max(0.2, (canvas.width - 112) / shownWidth))
     }
 
     private func islandFrame(in canvas: CGSize) -> CGRect {

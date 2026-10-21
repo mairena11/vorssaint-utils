@@ -13,6 +13,7 @@ struct NotchMusicView: View {
     @ObservedObject private var shuffle = NotchShuffleService.shared
     @AppStorage(DefaultsKey.notchLyricsEnabled) private var lyricsEnabled = true
     @AppStorage(DefaultsKey.notchCinematicAppleMusic) private var cinematicAppleMusic = true
+    @AppStorage(DefaultsKey.notchCinematicAnimatedArtwork) private var cinematicAnimatedArtwork = true
     @AppStorage(DefaultsKey.notchQueueEnabled) private var queueEnabled = true
     @State private var extra: MusicExtra?
     private enum MusicExtra { case lyrics, queue }
@@ -269,7 +270,7 @@ struct NotchMusicView: View {
     /// A camera row is reserved above these controls so neither the title
     /// nor the cover ever overlaps the physical notch.
     private func cinematicPlayer(_ playback: NotchPlayback) -> some View {
-        let coverSize: CGFloat = 112
+        let coverSize: CGFloat = 144
         let trackKey = [playback.itemIdentifier ?? "", playback.track.title ?? "",
                         playback.track.artist ?? "", playback.track.album ?? ""].joined(separator: "|")
         let tint = service.artworkTint?.color ?? .white
@@ -277,10 +278,11 @@ struct NotchMusicView: View {
             if band.besideCamera {
                 Color.clear.frame(height: bandHeight)
             }
-            HStack(alignment: .center, spacing: 20) {
+            HStack(alignment: .center, spacing: 18) {
                 Button { RadialNowPlayingApplication.open(playback.track) } label: {
-                    NotchCinematicArtwork(artwork: service.artwork, source: playback.track,
-                                          isPlaying: playback.isPlaying, size: coverSize, tint: tint)
+                    NotchCinematicArtwork(artwork: service.artwork, playback: playback,
+                                          animated: cinematicAnimatedArtwork,
+                                          size: coverSize, tint: tint)
                 }
                 .buttonStyle(NotchButtonStyle(cornerRadius: coverSize * 0.19))
                 .help(text.mediaNowPlaying)
@@ -289,18 +291,20 @@ struct NotchMusicView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.96)))
 
                 VStack(alignment: .leading, spacing: 0) {
+                    Spacer(minLength: 0)
                     NotchCinematicScrollingTitle(title: playback.track.title ?? text.mediaNowPlaying)
                         .id(trackKey)
                         .transition(.opacity)
                     Text(service.commandFailed ? FeatureStrings.notchMusicExtras(l10n.language).playbackFailed
                          : playback.track.artist ?? playback.track.album ?? text.mediaNowPlaying)
-                        .font(.system(size: 12))
+                        .font(.system(size: 15))
                         .foregroundStyle(service.commandFailed ? .orange : .white.opacity(0.63))
                         .lineLimit(1)
                         .help(playback.track.artist ?? "")
-                    Spacer(minLength: 4)
                     NotchMusicTransport(playback: playback)
                         .frame(maxWidth: .infinity, alignment: .center)
+                        .padding(.top, 12)
+                    Spacer(minLength: 0)
                 }
                 .frame(height: coverSize)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -318,22 +322,10 @@ struct NotchMusicView: View {
                         .frame(height: NotchLayout.musicTimelineHeight)
                 }
             }
-            .padding(.top, 14)
-            Color.clear.frame(height: 14)
+            .padding(.top, 10)
+            Color.clear.frame(height: 6)
         }
         .frame(maxWidth: .infinity, alignment: .top)
-        .background {
-            // The cover itself supplies a rich but softened ambient image.
-            // The black right edge keeps the artist and transport readable.
-            ZStack {
-                NotchCinematicBackdrop(artwork: service.artwork, tint: tint,
-                                       isPlaying: playback.isPlaying)
-                    .id(trackKey)
-                    .transition(.opacity)
-            }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: trackKey)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: playback.isPlaying)
-        }
         .modifier(NotchMusicSwipeFeedback())
     }
 
@@ -457,12 +449,13 @@ struct NotchMusicView: View {
 /// supplies actual frequency levels. No inferred beats or synthetic motion.
 private struct NotchCinematicArtwork: View {
     let artwork: NSImage?
-    let source: RadialNowPlayingSnapshot
-    let isPlaying: Bool
+    let playback: NotchPlayback
+    let animated: Bool
     let size: CGFloat
     let tint: Color
     @ObservedObject private var audio = NotchAudioLevelService.shared
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var isPlaying: Bool { playback.isPlaying }
 
     private var pulse: Double {
         guard isPlaying, !reduceMotion, let levels = audio.levels, !levels.isEmpty else { return 0 }
@@ -471,7 +464,14 @@ private struct NotchCinematicArtwork: View {
     }
 
     var body: some View {
-        NotchArtwork(image: artwork, size: size, source: source)
+        Group {
+            if animated {
+                NotchMotionArtworkView(image: artwork, size: size, playback: playback,
+                                       sourcePID: playback.track.appPID, enabled: true)
+            } else {
+                NotchArtwork(image: artwork, size: size, source: playback.track)
+            }
+        }
             .scaleEffect(1 + pulse * 0.009)
             .animation(reduceMotion ? nil : .linear(duration: 0.09), value: pulse)
             .shadow(color: tint.opacity(isPlaying ? 0.64 : 0.24), radius: 24)
@@ -485,7 +485,7 @@ private struct NotchCinematicArtwork: View {
 
 /// The original blurred cover gives each album a different light signature.
 /// A second tint gently reinforces dark covers while the control side stays black.
-private struct NotchCinematicBackdrop: View {
+struct NotchCinematicBackdrop: View {
     let artwork: NSImage?
     let tint: Color
     let isPlaying: Bool
@@ -494,26 +494,30 @@ private struct NotchCinematicBackdrop: View {
         GeometryReader { space in
             ZStack(alignment: .leading) {
                 Color.black
+                LinearGradient(colors: [tint.opacity(isPlaying ? 0.65 : 0.25),
+                                        tint.opacity(isPlaying ? 0.43 : 0.17),
+                                        tint.opacity(isPlaying ? 0.34 : 0.13)],
+                               startPoint: .leading, endPoint: .trailing)
                 if let artwork {
                     Image(nsImage: artwork)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: space.size.width * 0.78,
-                               height: max(1, space.size.height * 1.35))
+                        .frame(width: space.size.width * 0.94,
+                               height: max(1, space.size.height * 1.25))
                         .clipped()
                         .blur(radius: 34)
-                        .opacity(isPlaying ? 0.66 : 0.22)
+                        .opacity(isPlaying ? 0.53 : 0.19)
                         .mask {
-                            LinearGradient(colors: [.white, .white.opacity(0.8), .clear],
+                            LinearGradient(colors: [.white, .white.opacity(0.80), .white.opacity(0.24)],
                                            startPoint: .leading, endPoint: .trailing)
                         }
                         .offset(x: -space.size.width * 0.06)
                 }
-                RadialGradient(colors: [tint.opacity(isPlaying ? 0.47 : 0.15),
-                                        tint.opacity(isPlaying ? 0.19 : 0.06), .clear],
+                RadialGradient(colors: [tint.opacity(isPlaying ? 0.36 : 0.13),
+                                        tint.opacity(isPlaying ? 0.20 : 0.07), .clear],
                                center: UnitPoint(x: 0.20, y: 0.52),
                                startRadius: 2, endRadius: max(160, space.size.width * 0.85))
-                LinearGradient(colors: [.clear, .black.opacity(0.24), .black.opacity(0.88)],
+                LinearGradient(colors: [.clear, .black.opacity(0.12), .black.opacity(0.30)],
                                startPoint: .leading, endPoint: .trailing)
             }
             .frame(width: space.size.width, height: space.size.height)
@@ -538,7 +542,7 @@ private struct NotchCinematicScrollingTitle: View {
             TimelineView(.animation(minimumInterval: 1.0 / 30.0,
                                     paused: reduceMotion || overflow <= 1)) { tick in
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 19, weight: .semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -551,7 +555,7 @@ private struct NotchCinematicScrollingTitle: View {
                     .offset(x: reduceMotion ? 0 : -distance(overflow: overflow, at: tick.date))
             }
         }
-        .frame(height: 21)
+        .frame(height: 27)
         .clipped()
         .accessibilityLabel(title)
         .help(title)
@@ -561,7 +565,7 @@ private struct NotchCinematicScrollingTitle: View {
 
     private func distance(overflow: CGFloat, at now: Date) -> CGFloat {
         guard overflow > 1 else { return 0 }
-        let transit = Double(overflow / 18) // points per second
+        let transit = Double(overflow / 16) // points per second
         let cycle = 2.2 + transit + 2.0 + transit
         let t = now.timeIntervalSince(startedAt).truncatingRemainder(dividingBy: cycle)
         if t < 2.2 { return 0 }

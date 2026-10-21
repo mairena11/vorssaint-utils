@@ -65,6 +65,7 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchTrackChange) private var trackChange = true
     @AppStorage(DefaultsKey.notchShowPlayingMusic) private var showPlayingMusic = true
     @AppStorage(DefaultsKey.notchCinematicAppleMusic) private var cinematicAppleMusic = true
+    @AppStorage(DefaultsKey.notchCinematicAnimatedArtwork) private var cinematicAnimatedArtwork = true
     @AppStorage(DefaultsKey.notchCinematicPausedActivity) private var cinematicPausedActivity = true
     @AppStorage(DefaultsKey.notchCinematicShowEqualizer) private var cinematicShowEqualizer = true
     @AppStorage(DefaultsKey.notchIncludeOtherPlayers) private var includeOtherPlayers = true
@@ -119,7 +120,7 @@ struct NotchSettings: View {
         [String(enabled), String(calendarEnabled), String(calendarCountdown), String(calendarTimeLeft),
          String(notificationsEnabled), String(dismissNativeNotifications), String(gesturesEnabled),
          String(lyricsEnabled), String(lyricsOnline), String(queueEnabled), String(liveEqualizer),
-         String(showPlayingMusic), String(cinematicAppleMusic), String(cinematicPausedActivity),
+         String(showPlayingMusic), String(cinematicAppleMusic), String(cinematicAnimatedArtwork), String(cinematicPausedActivity),
          String(cinematicShowEqualizer), String(includeOtherPlayers), idle, hiddenControls, controlOrder, size,
          String(timerEnabled), String(timerSoundEnabled), String(hideTimerCountdown),
          String(cameraEnabled), String(accessoriesEnabled), String(outlineEnabled), String(hideMenuBarGap),
@@ -433,6 +434,9 @@ struct NotchSettings: View {
                       caption: "Album-color ambience, centered controls and a clean seek bar. Apple Music only.",
                       isOn: $cinematicAppleMusic)
             if cinematicAppleMusic {
+                switchRow("play.rectangle.on.rectangle", "Animated album artwork (experimental)",
+                          caption: "Show actual Apple Music motion artwork when available. Uses the network while the player is open; otherwise shows the normal cover. Respects Reduce Motion and Low Power Mode.",
+                          isOn: $cinematicAnimatedArtwork)
                 switchRow("pause.circle", "Keep music activity when paused",
                           caption: "Freeze the compact bars until Apple Music closes or playback ends.",
                           isOn: $cinematicPausedActivity)

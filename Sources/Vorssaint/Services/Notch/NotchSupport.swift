@@ -666,7 +666,7 @@ enum NotchLayout {
             + (playing ? musicTimelineHeight + rowSpacing : 0) + musicTransportHeight + musicBottomRoom
         // Only the optional Apple Music presentation asks for a taller open
         // music page. The physical camera cutout and resting strip do not grow.
-        return cinematic && playing ? max(original, band + 112 + 2 + 14 + musicTimelineHeight + 14) : original
+        return cinematic && playing ? max(original, band + 144 + 2 + 10 + musicTimelineHeight + 6) : original
     }
 
     /// How the music page divides its height between the player and an open
@@ -2256,6 +2256,8 @@ struct NotchGeometry: Equatable {
     /// which stays the limit; nil takes all of it, as lists do. A width set
     /// by hand is the island's on every page.
     var pageContentWidth: CGFloat? = nil
+    /// Only the expanded Apple Music page uses a tighter horizontal frame.
+    var cinematicMusic = false
     /// Nothing floating beside the island leads to its sections, so the
     /// open page's row starts with the island's own button for them.
     var sectionsButtonInRow = false
@@ -2666,7 +2668,8 @@ struct NotchGeometry: Equatable {
         let preferred = layout == .custom ? chosen : pageContentWidth.map { natural in
             min(chosen, max(natural, isNotched ? cameraWidth + wing * 2 : 0) + NotchLayout.horizontalInset * 2)
         } ?? chosen
-        return min(max(preferred, cameraWidth + 36), screen.width - 24 - NotchQuickAccessLayout.gutter * 2)
+        let fitted = cinematicMusic ? min(preferred, 500) : preferred
+        return min(max(fitted, cameraWidth + 36), screen.width - 24 - NotchQuickAccessLayout.gutter * 2)
     }
     var contentWidth: CGFloat { max(0, expandedWidth - NotchLayout.horizontalInset * 2) }
     /// Content height available before a page needs to scroll.
@@ -2755,7 +2758,11 @@ struct NotchGeometry: Equatable {
             case .music:
                 let player = NotchLayout.musicPlayerHeight(band: musicBandHeight, playing: musicHasContent,
                                                           cinematic: musicCinematic)
-                contentHeight = min(budget, player) + max(0, musicExtraHeight)
+                // Cinematic artwork needs its actual height even in the compact preset.
+                // Custom-height mode retains the original user-selected limit.
+                let playerRoom = musicCinematic && musicHasContent && layout != .custom
+                    ? player : min(budget, player)
+                contentHeight = playerRoom + max(0, musicExtraHeight)
             case .system:
                 let cards = max(0, systemCards)
                 contentHeight = min(budget, cards == 0 ? NotchLayout.emptyHeight

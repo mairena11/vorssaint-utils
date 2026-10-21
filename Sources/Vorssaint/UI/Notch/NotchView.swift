@@ -309,6 +309,33 @@ struct NotchView: View {
             .padding(.top, geometry.headerTopInset)
             .padding(.bottom, NotchLayout.bottomInset)
             .frame(width: service.expandedSize.width, height: service.expandedSize.height, alignment: .top)
+            .background {
+                // Full-bleed album backdrop belongs to the expanded island,
+                // not the narrower music content rectangle and its padding.
+                if service.selected == .music,
+                   !service.showingSections, !service.showingAppPanel,
+                   service.selectedMetric == nil,
+                   (UserDefaults.standard.object(forKey: DefaultsKey.notchCinematicAppleMusic) as? Bool ?? true),
+                   let playback = music.playback,
+                   playback.track.appBundleIdentifier == "com.apple.Music" {
+                    let trackKey = [playback.itemIdentifier ?? "", playback.track.title ?? "",
+                                    playback.track.artist ?? "", playback.track.album ?? ""].joined(separator: "|")
+                    ZStack {
+                        NotchCinematicBackdrop(artwork: music.artwork,
+                                               tint: music.artworkTint?.color ?? .white,
+                                               isPlaying: playback.isPlaying)
+                            .id(trackKey)
+                            .transition(.opacity)
+                    }
+                    .frame(width: service.expandedSize.width,
+                           height: service.expandedSize.height)
+                    .clipShape(NotchShape.island(height: service.expandedSize.height,
+                                                 geometry: service.geometry))
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: trackKey)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: playback.isPlaying)
+                    .allowsHitTesting(false)
+                }
+            }
             .contentShape(Rectangle())
             .contextMenu { islandMenu }
             // Opening the island makes its panel key, so Keyboard navigation would ring
