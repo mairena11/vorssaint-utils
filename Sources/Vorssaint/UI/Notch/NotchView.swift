@@ -489,8 +489,11 @@ struct NotchView: View {
             // Shorten the tracks before pushing mute and level controls offscreen.
             size.height = max(size.height, NotchLayout.mixerMinimumHeight)
         case .music:
+            let cinematic = (UserDefaults.standard.object(forKey: DefaultsKey.notchCinematicAppleMusic) as? Bool ?? true)
+                && music.playback?.track.appBundleIdentifier == "com.apple.Music"
             size.height = max(size.height, NotchLayout.musicPlayerHeight(band: service.expandedGeometry.musicBandHeight,
-                                                                         playing: music.playback != nil))
+                                                                         playing: music.playback != nil,
+                                                                         cinematic: cinematic))
         case .files:
             // One shelf tile and its vertical insets; the actions are in the top row.
             size.height = max(size.height, 88 + 8)

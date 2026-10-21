@@ -15,13 +15,15 @@ struct NotchEqualizerBars: View {
     /// Band levels from 0 to 1 read from the player's audio. When present the
     /// bars follow them instead of the stepped synthetic motion.
     var live: [Double]? = nil
+    var freezeOnPause = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let count = max(1, bars)
         NotchEqualizerBridge(animates: isPlaying && !reduceMotion, bars: count,
                              barWidth: barWidth, height: height, tint: NSColor(tint),
-                             levels: isPlaying && !reduceMotion ? live : nil)
+                             levels: isPlaying && !reduceMotion ? live : nil,
+                             freezeOnPause: freezeOnPause && !isPlaying)
             .frame(width: CGFloat(count) * barWidth + CGFloat(count - 1) * barWidth * 0.85,
                    height: height)
             // A hosted view has no baseline of its own, so beside text it
@@ -41,12 +43,13 @@ private struct NotchEqualizerBridge: NSViewRepresentable {
     let height: CGFloat
     let tint: NSColor
     let levels: [Double]?
+    let freezeOnPause: Bool
 
     func makeNSView(context: Context) -> NotchEqualizerView { NotchEqualizerView() }
 
     func updateNSView(_ view: NotchEqualizerView, context: Context) {
         view.configure(animates: animates, bars: bars, barWidth: barWidth, height: height,
-                       tint: tint, levels: levels)
+                       tint: tint, levels: levels, freezeOnPause: freezeOnPause)
     }
 
     static func dismantleNSView(_ view: NotchEqualizerView, coordinator: ()) { view.stop() }
@@ -58,6 +61,7 @@ final class NotchEqualizerView: NSView {
     private var height: CGFloat = 0
     private var animates = false
     private var levels: [Double]?
+    private var freezeOnPause = false
     private var visibilityObserver: NSObjectProtocol?
     /// Each bar's swing: its lowest and highest height, how long it takes
     /// to rise, and how far into its swing it starts.
@@ -80,10 +84,11 @@ final class NotchEqualizerView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     func configure(animates: Bool, bars count: Int, barWidth: CGFloat, height: CGFloat,
-                   tint: NSColor, levels: [Double]? = nil) {
+                   tint: NSColor, levels: [Double]? = nil, freezeOnPause: Bool = false) {
         let count = max(1, count)
         self.animates = animates
         self.levels = levels
+        self.freezeOnPause = freezeOnPause
         self.barWidth = barWidth
         self.height = height
         CATransaction.begin()
@@ -104,6 +109,7 @@ final class NotchEqualizerView: NSView {
     func stop() {
         animates = false
         levels = nil
+        freezeOnPause = false
         updateBars()
         if let visibilityObserver { NotificationCenter.default.removeObserver(visibilityObserver) }
         visibilityObserver = nil
@@ -147,9 +153,13 @@ final class NotchEqualizerView: NSView {
         CATransaction.setDisableActions(true)
         for (index, bar) in bars.enumerated() {
             var resting: CGFloat = moving ? swings[index].low : barWidth
-            // The reader already smooths its levels and sends thirty a
-            // second, so a live bar is set straight onto the layer.
-            if let live {
+            // Preserve the exact last layer height when paused. No new motion
+            // is synthesized, and other players retain upstream behavior.
+            if freezeOnPause && !moving && bar.bounds.height > 0 {
+                resting = bar.bounds.height
+            } else if let live {
+                // The reader already smooths its levels and sends thirty
+                // updates a second, so use them without synthetic motion.
                 let level = live[NotchAudioLevelSupport.barIndex(index, of: bars.count, bands: live.count)]
                 resting = max(barWidth, height * CGFloat(0.1 + 0.9 * min(1, max(0, level))))
             } else if swinging {

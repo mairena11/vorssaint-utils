@@ -660,9 +660,13 @@ enum NotchLayout {
     }
     /// The whole player, the same in every preset; with nothing playing it
     /// has no timeline.
-    static func musicPlayerHeight(band: CGFloat, playing: Bool = true) -> CGFloat {
-        musicHeadHeight(band: band) + musicHeadSpacing
+    static func musicPlayerHeight(band: CGFloat, playing: Bool = true,
+                                  cinematic: Bool = false) -> CGFloat {
+        let original = musicHeadHeight(band: band) + musicHeadSpacing
             + (playing ? musicTimelineHeight + rowSpacing : 0) + musicTransportHeight + musicBottomRoom
+        // Only the optional Apple Music presentation asks for a taller open
+        // music page. The physical camera cutout and resting strip do not grow.
+        return cinematic && playing ? max(original, band + 112 + 2 + 14 + musicTimelineHeight + 14) : original
     }
 
     /// How the music page divides its height between the player and an open
@@ -2713,7 +2717,7 @@ struct NotchGeometry: Equatable {
     func expandedSize(module: NotchModule, detail: Bool = false, panel: Bool = false,
                       detailHeight: CGFloat? = nil, shortcutCount: Int = 4,
                       sliderCount: Int = 2, controlsHaveMusic: Bool = true, musicHasContent: Bool = true,
-                      musicExtraHeight: CGFloat = 0,
+                      musicCinematic: Bool = false, musicExtraHeight: CGFloat = 0,
                       fileMediaHeight: CGFloat? = nil, systemCards: Int = 6, toolCount: Int? = 8,
                       capturePreviewHeight: CGFloat? = nil,
                       timerHasSession: Bool = false, timerMode: NotchTimerMode = .timer,
@@ -2749,7 +2753,8 @@ struct NotchGeometry: Equatable {
                 let empty = !controlsHaveMusic && sliderCount <= 0 && shortcutCount <= 0
                 contentHeight = min(room, empty ? NotchLayout.emptyHeight : home.height)
             case .music:
-                let player = NotchLayout.musicPlayerHeight(band: musicBandHeight, playing: musicHasContent)
+                let player = NotchLayout.musicPlayerHeight(band: musicBandHeight, playing: musicHasContent,
+                                                          cinematic: musicCinematic)
                 contentHeight = min(budget, player) + max(0, musicExtraHeight)
             case .system:
                 let cards = max(0, systemCards)

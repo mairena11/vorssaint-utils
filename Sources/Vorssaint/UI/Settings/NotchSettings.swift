@@ -65,6 +65,8 @@ struct NotchSettings: View {
     @AppStorage(DefaultsKey.notchTrackChange) private var trackChange = true
     @AppStorage(DefaultsKey.notchShowPlayingMusic) private var showPlayingMusic = true
     @AppStorage(DefaultsKey.notchCinematicAppleMusic) private var cinematicAppleMusic = true
+    @AppStorage(DefaultsKey.notchCinematicPausedActivity) private var cinematicPausedActivity = true
+    @AppStorage(DefaultsKey.notchCinematicShowEqualizer) private var cinematicShowEqualizer = true
     @AppStorage(DefaultsKey.notchIncludeOtherPlayers) private var includeOtherPlayers = true
     @AppStorage(DefaultsKey.notchPreferredPlayer) private var preferredPlayer = NotchPreferredPlayer.automatic
     @AppStorage(DefaultsKey.notchIdleContent) private var idle = NotchIdleContent.music.rawValue
@@ -117,7 +119,8 @@ struct NotchSettings: View {
         [String(enabled), String(calendarEnabled), String(calendarCountdown), String(calendarTimeLeft),
          String(notificationsEnabled), String(dismissNativeNotifications), String(gesturesEnabled),
          String(lyricsEnabled), String(lyricsOnline), String(queueEnabled), String(liveEqualizer),
-         String(showPlayingMusic), String(cinematicAppleMusic), String(includeOtherPlayers), idle, hiddenControls, controlOrder, size,
+         String(showPlayingMusic), String(cinematicAppleMusic), String(cinematicPausedActivity),
+         String(cinematicShowEqualizer), String(includeOtherPlayers), idle, hiddenControls, controlOrder, size,
          String(timerEnabled), String(timerSoundEnabled), String(hideTimerCountdown),
          String(cameraEnabled), String(accessoriesEnabled), String(outlineEnabled), String(hideMenuBarGap),
          String(customWidth), String(customHeight), String(cameraFitWidth), String(cameraFitHeight),
@@ -429,6 +432,17 @@ struct NotchSettings: View {
             switchRow("sparkles", "Cinematic Apple Music",
                       caption: "Album-color ambience, centered controls and a clean seek bar. Apple Music only.",
                       isOn: $cinematicAppleMusic)
+            if cinematicAppleMusic {
+                switchRow("pause.circle", "Keep music activity when paused",
+                          caption: "Freeze the compact bars until Apple Music closes or playback ends.",
+                          isOn: $cinematicPausedActivity)
+                    .onChange(of: cinematicPausedActivity) { _, _ in
+                        NotchService.shared.refreshPresentation(animated: false)
+                    }
+                switchRow("waveform", "Show compact equalizer bars",
+                          caption: "Hide just the bars, without disabling music or the expanded player.",
+                          isOn: $cinematicShowEqualizer)
+            }
             switchRow("play.rectangle", music.includeOtherPlayers, isOn: $includeOtherPlayers)
             SettingsRow(symbol: "arrow.up.forward.app", title: music.preferredPlayer, caption: music.preferredPlayerHint) {
                 Picker(music.preferredPlayer, selection: $preferredPlayer) {

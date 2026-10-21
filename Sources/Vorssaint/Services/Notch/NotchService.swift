@@ -492,7 +492,11 @@ final class NotchService: ObservableObject {
         let playback = NotchMusicService.shared.playback
         // A song paused from the strip's button counts as playing while the pointer stays.
         let held = playback.map { musicStripHolds(context: $0.commandContext, player: $0.track.appPID) } ?? false
-        return NotchSupport.showsMusicActivity(isPlaying: held || playback?.isPlaying == true)
+        let customMusic = (UserDefaults.standard.object(forKey: DefaultsKey.notchCinematicAppleMusic) as? Bool ?? true)
+            && (UserDefaults.standard.object(forKey: DefaultsKey.notchCinematicPausedActivity) as? Bool ?? true)
+            && playback?.track.appBundleIdentifier == "com.apple.Music"
+        // Do not keep a ghost activity when the player has no track.
+        return NotchSupport.showsMusicActivity(isPlaying: held || playback?.isPlaying == true || (customMusic && playback != nil))
     }
 
     var hasAgentActivity: Bool {
@@ -828,10 +832,14 @@ final class NotchService: ObservableObject {
         let controls = NotchSupport.controls()
         let sliders = controls.filter(\.isLevel).count
         let shortcuts = controls.filter { !$0.isLevel && $0 != .music }.count
+        let music = NotchMusicService.shared.playback
+        let cinematicMusic = (UserDefaults.standard.object(forKey: DefaultsKey.notchCinematicAppleMusic) as? Bool ?? true)
+            && music?.track.appBundleIdentifier == "com.apple.Music"
         return geometry.expandedSize(module: module, detail: detail, panel: panel, detailHeight: detailHeight,
                                      shortcutCount: shortcuts,
-                                     sliderCount: sliders, controlsHaveMusic: controls.contains(.music), musicHasContent: NotchMusicService.shared.playback != nil,
-                                     musicExtraHeight: musicExtraHeight, fileMediaHeight: fileMediaHeight,
+                                     sliderCount: sliders, controlsHaveMusic: controls.contains(.music), musicHasContent: music != nil,
+                                     musicCinematic: cinematicMusic, musicExtraHeight: musicExtraHeight,
+                                     fileMediaHeight: fileMediaHeight,
                                      systemCards: NotchSupport.systemCardCount(hasBattery: PowerSampler.hasInternalBattery,
                                                                                fans: SystemMonitor.shared.snapshot.fanSpeeds.count),
                                      toolCount: toolCount, capturePreviewHeight: capturePreviewHeight,

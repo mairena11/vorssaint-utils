@@ -46,11 +46,12 @@ struct NotchLiveEqualizerBars: View {
     var barWidth: CGFloat = 2.5
     var height: CGFloat = 14
     var tint: Color = .white
+    var freezeOnPause = false
     @ObservedObject private var audio = NotchAudioLevelService.shared
 
     var body: some View {
         NotchEqualizerBars(isPlaying: isPlaying, bars: bars, barWidth: barWidth, height: height, tint: tint,
-                           live: audio.levels)
+                           live: audio.levels, freezeOnPause: freezeOnPause)
     }
 }
 

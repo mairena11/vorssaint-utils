@@ -43,9 +43,11 @@ struct NotchMusicView: View {
         // its height. That height comes from the geometry, not from this page,
         // which is still the idle page when music starts with lyrics chosen.
         let geometry = NotchService.shared.geometry
+        let isCinematic = cinematicAppleMusic && service.playback?.track.appBundleIdentifier == "com.apple.Music"
         let split = NotchLayout.musicSplit(
             height: size.height, extras: extrasHeight,
-            resting: NotchLayout.musicPlayerHeight(band: bandHeight, playing: service.playback != nil),
+            resting: NotchLayout.musicPlayerHeight(band: bandHeight, playing: service.playback != nil,
+                                                   cinematic: isCinematic),
             keepsPlayer: !preview && geometry.layout != .custom, extraOpen: openExtra != nil)
         // With the player gone the list starts below the camera's row, which
         // keeps its toggles; without that row they come back in one of their
@@ -267,20 +269,18 @@ struct NotchMusicView: View {
     /// A camera row is reserved above these controls so neither the title
     /// nor the cover ever overlaps the physical notch.
     private func cinematicPlayer(_ playback: NotchPlayback) -> some View {
-        let coverSize: CGFloat = 100
+        let coverSize: CGFloat = 112
         let trackKey = [playback.itemIdentifier ?? "", playback.track.title ?? "",
                         playback.track.artist ?? "", playback.track.album ?? ""].joined(separator: "|")
         let tint = service.artworkTint?.color ?? .white
-        let glow = service.artworkTint?.color ?? .clear
         return VStack(spacing: 0) {
             if band.besideCamera {
                 Color.clear.frame(height: bandHeight)
             }
-            HStack(alignment: .center, spacing: 16) {
+            HStack(alignment: .center, spacing: 20) {
                 Button { RadialNowPlayingApplication.open(playback.track) } label: {
-                    NotchArtwork(image: service.artwork, size: coverSize, source: playback.track)
-                        .shadow(color: glow.opacity(playback.isPlaying ? 0.48 : 0.17), radius: 20)
-                        .scaleEffect(playback.isPlaying || reduceMotion ? 1.0 : 0.99)
+                    NotchCinematicArtwork(artwork: service.artwork, source: playback.track,
+                                          isPlaying: playback.isPlaying, size: coverSize, tint: tint)
                 }
                 .buttonStyle(NotchButtonStyle(cornerRadius: coverSize * 0.19))
                 .help(text.mediaNowPlaying)
@@ -306,6 +306,7 @@ struct NotchMusicView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity)
+            .padding(.top, 2)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: trackKey)
 
             Group {
@@ -317,23 +318,21 @@ struct NotchMusicView: View {
                         .frame(height: NotchLayout.musicTimelineHeight)
                 }
             }
-            .padding(.top, 10)
-            Color.clear.frame(height: NotchLayout.musicBottomRoom)
+            .padding(.top, 14)
+            Color.clear.frame(height: 14)
         }
         .frame(maxWidth: .infinity, alignment: .top)
         .background {
-            // Album colors stay on the artwork side; controls are legible
-            // on black. The existing notch silhouette clips the background.
-            RadialGradient(colors: [glow.opacity(playback.isPlaying ? 0.50 : 0.16),
-                                    glow.opacity(playback.isPlaying ? 0.22 : 0.07), .clear],
-                           center: UnitPoint(x: 0.16, y: 0.62), startRadius: 12, endRadius: 238)
-                .overlay {
-                    LinearGradient(colors: [.clear, .black.opacity(0.56)],
-                                   startPoint: .leading, endPoint: .trailing)
-                }
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: service.artworkTint)
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: playback.isPlaying)
-                .allowsHitTesting(false)
+            // The cover itself supplies a rich but softened ambient image.
+            // The black right edge keeps the artist and transport readable.
+            ZStack {
+                NotchCinematicBackdrop(artwork: service.artwork, tint: tint,
+                                       isPlaying: playback.isPlaying)
+                    .id(trackKey)
+                    .transition(.opacity)
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: trackKey)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.65), value: playback.isPlaying)
         }
         .modifier(NotchMusicSwipeFeedback())
     }
@@ -451,6 +450,76 @@ struct NotchMusicView: View {
         .accessibilityValue([service.sourceIsAutomatic ? extras.automaticSource : nil,
                              playback == nil ? nil : name].compactMap { $0 }.joined(separator: ", "))
         .help(extras.playbackSource)
+    }
+}
+
+/// Album artwork only pulses when the existing, permission-gated audio tap
+/// supplies actual frequency levels. No inferred beats or synthetic motion.
+private struct NotchCinematicArtwork: View {
+    let artwork: NSImage?
+    let source: RadialNowPlayingSnapshot
+    let isPlaying: Bool
+    let size: CGFloat
+    let tint: Color
+    @ObservedObject private var audio = NotchAudioLevelService.shared
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var pulse: Double {
+        guard isPlaying, !reduceMotion, let levels = audio.levels, !levels.isEmpty else { return 0 }
+        let energy = levels.reduce(0, +) / Double(levels.count)
+        return min(1, max(0, energy))
+    }
+
+    var body: some View {
+        NotchArtwork(image: artwork, size: size, source: source)
+            .scaleEffect(1 + pulse * 0.009)
+            .animation(reduceMotion ? nil : .linear(duration: 0.09), value: pulse)
+            .shadow(color: tint.opacity(isPlaying ? 0.64 : 0.24), radius: 24)
+            .overlay {
+                RoundedRectangle(cornerRadius: size * 0.19, style: .continuous)
+                    .strokeBorder(.white.opacity(0.12), lineWidth: 0.7)
+                    .allowsHitTesting(false)
+            }
+    }
+}
+
+/// The original blurred cover gives each album a different light signature.
+/// A second tint gently reinforces dark covers while the control side stays black.
+private struct NotchCinematicBackdrop: View {
+    let artwork: NSImage?
+    let tint: Color
+    let isPlaying: Bool
+
+    var body: some View {
+        GeometryReader { space in
+            ZStack(alignment: .leading) {
+                Color.black
+                if let artwork {
+                    Image(nsImage: artwork)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: space.size.width * 0.78,
+                               height: max(1, space.size.height * 1.35))
+                        .clipped()
+                        .blur(radius: 34)
+                        .opacity(isPlaying ? 0.66 : 0.22)
+                        .mask {
+                            LinearGradient(colors: [.white, .white.opacity(0.8), .clear],
+                                           startPoint: .leading, endPoint: .trailing)
+                        }
+                        .offset(x: -space.size.width * 0.06)
+                }
+                RadialGradient(colors: [tint.opacity(isPlaying ? 0.47 : 0.15),
+                                        tint.opacity(isPlaying ? 0.19 : 0.06), .clear],
+                               center: UnitPoint(x: 0.20, y: 0.52),
+                               startRadius: 2, endRadius: max(160, space.size.width * 0.85))
+                LinearGradient(colors: [.clear, .black.opacity(0.24), .black.opacity(0.88)],
+                               startPoint: .leading, endPoint: .trailing)
+            }
+            .frame(width: space.size.width, height: space.size.height)
+            .clipped()
+        }
+        .allowsHitTesting(false)
     }
 }
 

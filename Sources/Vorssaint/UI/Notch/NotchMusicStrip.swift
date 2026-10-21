@@ -29,6 +29,8 @@ struct NotchMusicStrip: View {
     var interactive = false
     @ObservedObject private var music = NotchMusicService.shared
     @ObservedObject private var l10n = L10n.shared
+    @AppStorage(DefaultsKey.notchCinematicAppleMusic) private var cinematicAppleMusic = true
+    @AppStorage(DefaultsKey.notchCinematicShowEqualizer) private var showCompactEqualizer = true
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private typealias Layout = NotchMusicStripLayout
@@ -123,16 +125,24 @@ struct NotchMusicStrip: View {
         .frame(width: (named ?? wing) * 2 + geometry.compactActivityCameraGap, alignment: .leading)
     }
 
+    private var displaysEqualizer: Bool {
+        guard cinematicAppleMusic, playback?.track.appBundleIdentifier == "com.apple.Music" else { return true }
+        return showCompactEqualizer
+    }
+
     /// The bars, or the button they become while the pointer rests on them.
     /// Both stay in place and cross-fade, and hidden bars hold still.
     private var bars: some View {
         ZStack {
-            NotchLiveEqualizerBars(isPlaying: playing && !showsControl,
+            NotchLiveEqualizerBars(isPlaying: playing && !showsControl && displaysEqualizer,
                                    bars: NotchLayout.compactMusicBarCount,
                                    barWidth: NotchLayout.compactMusicBarWidth,
                                    height: geometry.compactMusicBarHeight,
-                                   tint: tint?.color ?? .white)
-                .opacity(showsControl ? 0 : 1)
+                                   tint: tint?.color ?? .white,
+                                   freezeOnPause: cinematicAppleMusic && displaysEqualizer
+                                       && playback?.track.appBundleIdentifier == "com.apple.Music"
+                                       && playback?.isPlaying == false)
+                .opacity(showsControl || !displaysEqualizer ? 0 : 1)
             if showsControl {
                 NotchMusicStripButton(playing: playing, tint: tint?.color ?? .white,
                                       height: geometry.compactMusicBarHeight)
